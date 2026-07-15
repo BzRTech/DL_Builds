@@ -1,0 +1,85 @@
+# Configuração do piloto de extração de edificações.
+# Todos os caminhos são relativos à raiz do repositório, salvo indicação contrária.
+
+project:
+  name: buildings_pilot
+  seed: 42
+
+# ---------------------------------------------------------------------------
+# Dados de entrada. Uma entrada por cidade. 'image' pode ser ECW ou GeoTIFF/COG.
+# 'labels' é o shapefile (ou GeoPackage) com os polígonos de edificações.
+# ---------------------------------------------------------------------------
+cities:
+  - name: cidade_a
+    image: data/raw/cidade_a/ortofoto.ecw
+    labels: data/raw/cidade_a/edificacoes.shp
+    split: train           # train | test  (para leave-one-city-out)
+  - name: cidade_b
+    image: data/raw/cidade_b/ortofoto.ecw
+    labels: data/raw/cidade_b/edificacoes.shp
+    split: test
+
+# ---------------------------------------------------------------------------
+# Preparo de dados
+# ---------------------------------------------------------------------------
+data_prep:
+  processed_dir: data/processed     # COGs convertidos
+  tiles_dir: data/tiles             # tiles de imagem/máscara
+  tile_size: 512                    # px
+  overlap: 128                      # px de sobreposição entre tiles (~25%)
+  bands: [1, 2, 3]                  # RGB (ordem das bandas do raster)
+  min_building_coverage: 0.0        # descartar tiles com < X de fração de edificação (0 = manter todos)
+  val_fraction: 0.15                # fração do split 'train' reservada para validação (split espacial)
+
+# ---------------------------------------------------------------------------
+# Modelo / treino
+# ---------------------------------------------------------------------------
+model:
+  arch: Unet                        # Unet | DeepLabV3Plus (segmentation-models-pytorch)
+  encoder: resnet34                 # ex.: resnet34, efficientnet-b0
+  encoder_weights: imagenet
+  in_channels: 3
+  classes: 1                        # segmentação binária (edificação vs. fundo)
+
+train:
+  device: cuda
+  epochs: 60
+  batch_size: 8
+  num_workers: 4
+  lr: 0.0003
+  weight_decay: 0.0001
+  amp: true                         # mixed precision
+  early_stop_patience: 12
+  dice_weight: 0.5                  # peso do Dice na loss combinada Dice+BCE
+  out_dir: runs/buildings           # checkpoints + logs (TensorBoard)
+  # Normalização: se null, é calculada a partir dos tiles de treino em data_prep.
+  norm_mean: null
+  norm_std: null
+
+# ---------------------------------------------------------------------------
+# Inferência
+# ---------------------------------------------------------------------------
+inference:
+  checkpoint: runs/buildings/best.pt
+  threshold: 0.5
+  window: 512
+  overlap: 128
+  batch_size: 8
+  out_mask_dir: outputs/masks
+
+# ---------------------------------------------------------------------------
+# Pós-processamento (vetorização)
+# ---------------------------------------------------------------------------
+postprocess:
+  min_area_m2: 12.0                 # descartar polígonos menores que isto
+  simplify_tolerance_m: 0.5         # tolerância de simplificação (Douglas-Peucker)
+  orthogonalize: true               # regularizar cantos (edifícios ~retangulares)
+  fill_holes_m2: 4.0                # preencher buracos internos menores que isto
+  out_vector: outputs/edificacoes.gpkg
+
+# ---------------------------------------------------------------------------
+# Avaliação
+# ---------------------------------------------------------------------------
+eval:
+  iou_thresholds: [0.5]             # limiares para F1 por objeto
+  report_dir: outputs/eval

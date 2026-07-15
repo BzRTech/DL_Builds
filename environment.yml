@@ -1,0 +1,35 @@
+name: dl_builds
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.11
+  # --- Geoespacial ---
+  - gdal>=3.7
+  - rasterio>=1.3
+  - geopandas>=0.14
+  - shapely>=2.0
+  - fiona>=1.9
+  - pyproj>=3.6
+  - rtree
+  # --- Deep Learning (GPU) ---
+  # Ajuste 'pytorch-cuda' à versão de CUDA da sua máquina (ex.: 11.8 ou 12.1).
+  - pytorch>=2.1
+  - torchvision
+  - pytorch-cuda=12.1
+  # --- Utilitários ---
+  - numpy
+  - scipy
+  - scikit-image
+  - scikit-learn
+  - pandas
+  - matplotlib
+  - tqdm
+  - pyyaml
+  - tensorboard
+  - jupyterlab
+  - pip
+  - pip:
+      - segmentation-models-pytorch>=0.3.3
+      - albumentations>=1.3

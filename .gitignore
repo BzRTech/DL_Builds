@@ -1,0 +1,23 @@
+# Dados e artefatos (nunca versionar rasters/modelos grandes)
+data/
+outputs/
+runs/
+*.tif
+*.tiff
+*.ecw
+*.pt
+*.pth
+*.ckpt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.venv/
+env/
+
+# Ferramentas
+.vscode/
+.idea/
+.DS_Store
