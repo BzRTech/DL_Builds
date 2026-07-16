@@ -81,6 +81,33 @@ src/
 └── eval/        evaluate.py
 ```
 
+## Usar o modelo em uma cidade nova (só inferência)
+
+Quando chegar uma **ortofoto nova**, você **não** precisa de rótulos nem re-treinar —
+o modelo já treinado (`runs/buildings/best.pt`) extrai as edificações direto. Um comando:
+
+```bash
+python -m src.predict_city --image data/raw/NovaCidade/ortofoto.tif --out outputs/NovaCidade.gpkg
+```
+
+No Windows há também um atalho (duplo-clique ou linha de comando):
+
+```bat
+scripts\prever_nova_cidade.bat "data\raw\NovaCidade\ortofoto.tif" "outputs\NovaCidade.gpkg"
+```
+
+> Se a ortofoto nova for **ECW**, converta antes para GeoTIFF no QGIS (mesmo passo do piloto).
+> O resultado é um `GeoPackage` com os polígonos das edificações, pronto para o QGIS.
+
+## Interface (fase futura)
+
+Está previsto um **app web local** (Streamlit/Gradio) para: escolher/enviar a ortofoto,
+disparar a extração com **barra de progresso**, e **visualizar os polígonos sobre a imagem
+em um mapa**, com botão de download do GeoPackage. Observação: ortofotos têm vários GB, então
+o fluxo prático é apontar para o arquivo no disco/servidor (em vez de "upload" pelo navegador)
+e renderizar o resultado num mapa (Leaflet/folium). Enquanto isso, o **QGIS** já serve como
+interface para abrir e revisar as camadas geradas.
+
 ## Roadmap
 
 - [x] Fase 0 — Setup e inspeção de dados
@@ -88,4 +115,6 @@ src/
 - [ ] Fase 2 — Treino do modelo de edificações
 - [ ] Fase 3 — Inferência + vetorização
 - [ ] Fase 4 — Avaliação (IoU/F1, leave-one-city-out)
+- [x] Inferência em cidade nova (`src/predict_city.py`)
+- [ ] Interface web (upload + progresso + mapa) — Streamlit/Gradio
 - [ ] Futuro — Quadras (rede viária) e Lotes (subdivisão)
