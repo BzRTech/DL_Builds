@@ -48,45 +48,55 @@ def _orthogonalize(poly: Polygon, rect_ratio: float = 0.90) -> Polygon:
     return poly
 
 
-def _split_instances(poly: Polygon, transform, min_peak_distance_px: int,
-                     pad: int = 2) -> list[Polygon]:
-    """Divide um blob (que pode conter vários prédios encostados) em instâncias.
+def _instances_tiled(binary: np.ndarray, transform, min_peak_distance_px: int,
+                     tile: int = 4096, overlap: int = 512):
+    """Separa prédios encostados via watershed, varrendo a máscara em tiles de
+    tamanho fixo (com sobreposição). Assim a memória fica limitada mesmo quando a
+    máscara forma um único componente conectado gigante.
 
-    Rasteriza o blob numa janela local, aplica watershed sobre a transformada de
-    distância (um "pico" por prédio) e devolve um polígono por instância. Trabalha
-    só na janela do blob, então é leve mesmo em ortofotos gigantes.
+    Cada polígono é atribuído ao tile cujo "miolo" (tile menos as margens de
+    sobreposição) contém o seu ponto representativo, evitando contagem dupla nas
+    bordas. Devolve uma lista de polígonos (geo).
     """
-    minx, miny, maxx, maxy = poly.bounds
-    row_top, col_left = rowcol(transform, minx, maxy)   # linha cresce para baixo
-    row_bot, col_right = rowcol(transform, maxx, miny)
-    row0, col0 = max(int(row_top) - pad, 0), max(int(col_left) - pad, 0)
-    row1, col1 = int(row_bot) + pad + 1, int(col_right) + pad + 1
-    h, w = row1 - row0, col1 - col0
-    if h < 3 or w < 3:
-        return [poly]
+    height, width = binary.shape
+    step = tile - overlap
+    margin = overlap // 2
+    polys: list[Polygon] = []
 
-    local_tf = window_transform(Window(col0, row0, w, h), transform)
-    mask = rasterize([(poly, 1)], out_shape=(h, w), transform=local_tf, dtype="uint8")
-    if mask.sum() == 0:
-        return [poly]
+    for r0 in range(0, height, step):
+        for c0 in range(0, width, step):
+            r1, c1 = min(r0 + tile, height), min(c0 + tile, width)
+            sub = binary[r0:r1, c0:c1]
+            if not sub.any():
+                continue
 
-    dist = ndimage.distance_transform_edt(mask)
-    coords = peak_local_max(dist, min_distance=min_peak_distance_px, labels=mask)
-    if len(coords) <= 1:
-        return [poly]                       # um pico só -> não separa
+            dist = ndimage.distance_transform_edt(sub)
+            coords = peak_local_max(dist, min_distance=min_peak_distance_px, labels=sub)
+            if len(coords) == 0:
+                labels, _ = ndimage.label(sub)          # sem picos: 1 rótulo por componente
+            else:
+                markers = np.zeros(sub.shape, dtype=np.int32)
+                for i, (rr, cc) in enumerate(coords, start=1):
+                    markers[rr, cc] = i
+                labels = watershed(-dist, markers, mask=sub.astype(bool))
 
-    markers = np.zeros(dist.shape, dtype=np.int32)
-    for i, (r, c) in enumerate(coords, start=1):
-        markers[r, c] = i
-    labels = watershed(-dist, markers, mask=mask.astype(bool))
+            local_tf = window_transform(Window(c0, r0, c1 - c0, r1 - r0), transform)
+            # limites do "miolo" em pixels globais (nas bordas da imagem vai até a ponta)
+            core_r0 = r0 + margin if r0 > 0 else 0
+            core_c0 = c0 + margin if c0 > 0 else 0
+            core_r1 = r1 - margin if r1 < height else height
+            core_c1 = c1 - margin if c1 < width else width
 
-    result: list[Polygon] = []
-    for geom, _ in rio_shapes(labels.astype(np.int32), mask=labels > 0,
-                              transform=local_tf):
-        g = shape(geom)
-        if isinstance(g, Polygon) and not g.is_empty:
-            result.append(g)
-    return result if result else [poly]
+            for geom, _ in rio_shapes(labels.astype(np.int32), mask=labels > 0,
+                                      transform=local_tf):
+                g = shape(geom)
+                if not isinstance(g, Polygon) or g.is_empty:
+                    continue
+                rp = g.representative_point()
+                rr, cc = rowcol(transform, rp.x, rp.y)
+                if core_r0 <= rr < core_r1 and core_c0 <= cc < core_c1:
+                    polys.append(g)
+    return polys
 
 
 def vectorize(prob_path: str, output_path: str, cfg: dict) -> str:
@@ -106,36 +116,36 @@ def vectorize(prob_path: str, output_path: str, cfg: dict) -> str:
 
     instance_sep = pcfg.get("instance_separation", False)
     min_peak = int(pcfg.get("min_peak_distance_px", 25))
-    min_split_area = float(pcfg.get("min_split_area_m2", 40.0))
+    tile_px = int(pcfg.get("instance_tile_px", 4096))
+    overlap_px = int(pcfg.get("instance_overlap_px", 512))
+
+    # Polígonos-base: separados por instância (watershed em tiles) ou direto por
+    # componente conectado (rio_shapes).
+    if instance_sep:
+        raw_polys = _instances_tiled(binary, transform, min_peak, tile_px, overlap_px)
+    else:
+        raw_polys = []
+        for geom, val in rio_shapes(binary, mask=binary.astype(bool),
+                                    transform=transform):
+            if val != 1:
+                continue
+            g = shape(geom)
+            if isinstance(g, Polygon) and not g.is_empty:
+                raw_polys.append(g)
 
     geoms = []
-    n_blobs = 0
-    for geom, val in rio_shapes(binary, mask=binary.astype(bool), transform=transform):
-        if val != 1:
+    for poly in raw_polys:
+        if poly.is_empty or poly.area < pcfg["min_area_m2"]:
             continue
-        poly = shape(geom)
-        if not isinstance(poly, Polygon) or poly.is_empty:
-            continue
-        if poly.area < pcfg["min_area_m2"]:
-            continue
-        n_blobs += 1
-
-        # Separa blobs grandes em prédios individuais (watershed).
-        if instance_sep and poly.area >= min_split_area:
-            candidates = _split_instances(poly, transform, min_peak)
-        else:
-            candidates = [poly]
-
-        for cand in candidates:
-            cand = _fill_small_holes(cand, pcfg["fill_holes_m2"])
-            cand = cand.simplify(pcfg["simplify_tolerance_m"], preserve_topology=True)
-            if pcfg.get("orthogonalize", False):
-                cand = _orthogonalize(cand)
-            if cand.is_valid and not cand.is_empty and cand.area >= pcfg["min_area_m2"]:
-                geoms.append(cand)
+        poly = _fill_small_holes(poly, pcfg["fill_holes_m2"])
+        poly = poly.simplify(pcfg["simplify_tolerance_m"], preserve_topology=True)
+        if pcfg.get("orthogonalize", False):
+            poly = _orthogonalize(poly)
+        if poly.is_valid and not poly.is_empty and poly.area >= pcfg["min_area_m2"]:
+            geoms.append(poly)
 
     if instance_sep:
-        print(f"[vectorize] separação por instância: {n_blobs} blobs -> {len(geoms)} prédios")
+        print(f"[vectorize] separação por instância -> {len(geoms)} prédios")
 
     gdf = gpd.GeoDataFrame(
         {"id": range(1, len(geoms) + 1),
