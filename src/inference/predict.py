@@ -12,6 +12,8 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -64,51 +66,79 @@ def predict_image(image_path: str, output_path: str, cfg: dict) -> str:
     model, mean, std = load_checkpoint(icfg["checkpoint"], device)
     weight = _cosine_window(size)
 
-    with rasterio.open(image_path) as src:
-        width, height = src.width, src.height
-        profile = src.profile.copy()
+    # Acumuladores em disco (memmap) — a imagem pode ter dezenas de bilhões de
+    # pixels, o que estouraria a RAM se fossem arrays em memória.
+    tmp_dir = tempfile.mkdtemp(prefix="predict_", dir=Path(output_path).parent)
+    try:
+        with rasterio.open(image_path) as src:
+            width, height = src.width, src.height
+            profile = src.profile.copy()
 
-        prob_sum = np.zeros((height, width), dtype=np.float32)
-        weight_sum = np.zeros((height, width), dtype=np.float32)
+            prob_sum = np.memmap(Path(tmp_dir) / "prob_sum.dat", dtype=np.float32,
+                                 mode="w+", shape=(height, width))
+            weight_sum = np.memmap(Path(tmp_dir) / "weight_sum.dat", dtype=np.float32,
+                                   mode="w+", shape=(height, width))
 
-        windows = list(_iter_windows(width, height, size, stride))
-        print(f"[predict] {image_path}: {len(windows)} janelas ({size}px, stride {stride}).")
+            windows = list(_iter_windows(width, height, size, stride))
+            print(f"[predict] {image_path}: {len(windows)} janelas "
+                  f"({size}px, stride {stride}).")
 
-        batch_imgs, batch_pos = [], []
+            batch_imgs, batch_pos = [], []
+            done = 0
 
-        def flush():
-            if not batch_imgs:
-                return
-            x = torch.from_numpy(np.stack(batch_imgs)).to(device)
-            with torch.no_grad():
-                with torch.autocast(device_type=device.type,
-                                    enabled=(device.type == "cuda")):
-                    probs = torch.sigmoid(model(x)).float().cpu().numpy()[:, 0]
-            for (c_off, r_off), p in zip(batch_pos, probs):
-                prob_sum[r_off:r_off + size, c_off:c_off + size] += p * weight
-                weight_sum[r_off:r_off + size, c_off:c_off + size] += weight
-            batch_imgs.clear()
-            batch_pos.clear()
+            def flush():
+                nonlocal done
+                if not batch_imgs:
+                    return
+                x = torch.from_numpy(np.stack(batch_imgs)).to(device)
+                with torch.no_grad():
+                    with torch.autocast(device_type=device.type,
+                                        enabled=(device.type == "cuda")):
+                        probs = torch.sigmoid(model(x)).float().cpu().numpy()[:, 0]
+                for (c_off, r_off), p in zip(batch_pos, probs):
+                    prob_sum[r_off:r_off + size, c_off:c_off + size] += p * weight
+                    weight_sum[r_off:r_off + size, c_off:c_off + size] += weight
+                done += len(batch_imgs)
+                print(f"\r[predict] janelas processadas: {done}/{len(windows)}",
+                      end="", flush=True)
+                batch_imgs.clear()
+                batch_pos.clear()
 
-        for c_off, r_off in windows:
-            window = Window(c_off, r_off, size, size)
-            img = src.read(bands, window=window).astype(np.float32) / 255.0  # (C,H,W)
-            img = np.transpose(img, (1, 2, 0))          # (H,W,C)
-            img = (img - mean) / std
-            batch_imgs.append(np.transpose(img, (2, 0, 1)).copy())
-            batch_pos.append((c_off, r_off))
-            if len(batch_imgs) >= icfg["batch_size"]:
-                flush()
-        flush()
+            for c_off, r_off in windows:
+                window = Window(c_off, r_off, size, size)
+                raw = src.read(bands, window=window)              # (C,H,W) uint8
+                if not raw.any():                                 # pula áreas pretas (sem dado)
+                    continue
+                img = raw.astype(np.float32) / 255.0
+                img = np.transpose(img, (1, 2, 0))                # (H,W,C)
+                img = (img - mean) / std
+                batch_imgs.append(np.transpose(img, (2, 0, 1)).copy())
+                batch_pos.append((c_off, r_off))
+                if len(batch_imgs) >= icfg["batch_size"]:
+                    flush()
+            flush()
+            print()  # quebra de linha após a barra de progresso
 
-    prob = np.where(weight_sum > 0, prob_sum / np.maximum(weight_sum, 1e-6), 0.0)
+        # Grava a máscara de probabilidade em blocos de linhas (sem materializar
+        # a imagem inteira em memória).
+        ensure_dir(Path(output_path).parent)
+        profile.update(driver="GTiff", count=1, dtype="float32", nodata=None,
+                       compress="DEFLATE", tiled=True, blockxsize=512,
+                       blockysize=512, BIGTIFF="IF_SAFER")
+        block = 2048
+        with rasterio.open(output_path, "w", **profile) as dst:
+            for r0 in range(0, height, block):
+                r1 = min(r0 + block, height)
+                ps = np.asarray(prob_sum[r0:r1])
+                ws = np.asarray(weight_sum[r0:r1])
+                out = np.where(ws > 0, ps / np.maximum(ws, 1e-6), 0.0).astype(np.float32)
+                dst.write(out, 1, window=Window(0, r0, width, r1 - r0))
 
-    ensure_dir(Path(output_path).parent)
-    profile.update(count=1, dtype="float32", nodata=None, compress="DEFLATE")
-    with rasterio.open(output_path, "w", **profile) as dst:
-        dst.write(prob.astype(np.float32), 1)
-    print(f"[predict] Máscara de probabilidade salva: {output_path}")
-    return output_path
+        del prob_sum, weight_sum
+        print(f"[predict] Máscara de probabilidade salva: {output_path}")
+        return output_path
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _run_from_config(config_path: str, city: str | None,
