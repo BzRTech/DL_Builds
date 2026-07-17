@@ -10,14 +10,10 @@ project:
 # 'labels' é o shapefile (ou GeoPackage) com os polígonos de edificações.
 # ---------------------------------------------------------------------------
 cities:
-  - name: cidade_a
-    image: data/raw/cidade_a/ortofoto.ecw
-    labels: data/raw/cidade_a/edificacoes.shp
-    split: train           # train | test  (para leave-one-city-out)
-  - name: cidade_b
-    image: data/raw/cidade_b/ortofoto.ecw
-    labels: data/raw/cidade_b/edificacoes.shp
-    split: test
+  - name: Malta
+    image: data/raw/Malta/ortofoto.tif
+    labels: data/raw/Malta/edificacoes_merged.gpkg
+    split: train
 
 # ---------------------------------------------------------------------------
 # Preparo de dados
@@ -28,7 +24,7 @@ data_prep:
   tile_size: 512                    # px
   overlap: 128                      # px de sobreposição entre tiles (~25%)
   bands: [1, 2, 3]                  # RGB (ordem das bandas do raster)
-  min_building_coverage: 0.0        # descartar tiles com < X de fração de edificação (0 = manter todos)
+  min_building_coverage: 0.002       # descartar tiles com < X de fração de edificação (0 = manter todos)
   val_fraction: 0.15                # fração do split 'train' reservada para validação (split espacial)
 
 # ---------------------------------------------------------------------------
@@ -72,6 +68,9 @@ inference:
 # ---------------------------------------------------------------------------
 postprocess:
   min_area_m2: 12.0                 # descartar polígonos menores que isto
+  instance_separation: true
+  min_split_area_m2: 40.0
+  min_peak_distance_px: 25
   simplify_tolerance_m: 0.5         # tolerância de simplificação (Douglas-Peucker)
   orthogonalize: true               # regularizar cantos (edifícios ~retangulares)
   fill_holes_m2: 4.0                # preencher buracos internos menores que isto
