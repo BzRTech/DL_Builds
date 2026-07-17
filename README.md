@@ -116,5 +116,25 @@ interface para abrir e revisar as camadas geradas.
 - [ ] Fase 3 — Inferência + vetorização
 - [ ] Fase 4 — Avaliação (IoU/F1, leave-one-city-out)
 - [x] Inferência em cidade nova (`src/predict_city.py`)
+- [x] Suporte a múltiplos alvos (`configs/quadras.yaml`, `configs/lotes.yaml`)
 - [ ] Interface web (upload + progresso + mapa) — Streamlit/Gradio
-- [ ] Futuro — Quadras (rede viária) e Lotes (subdivisão)
+
+## Múltiplos alvos: quadras e lotes
+
+O mesmo pipeline atende os três alvos — muda-se só o rótulo e o alvo (`project.target`
+namespeia máscara/tiles/modelo, e a ortofoto COG é reutilizada). Rode os mesmos comandos
+trocando o `--config`:
+
+```bash
+# Quadras (segmentação + componentes conectados; separadas pelas ruas)
+python -m src.data_prep.rasterize_labels --config configs/quadras.yaml
+python -m src.data_prep.tile            --config configs/quadras.yaml
+python -m src.data_prep.split           --config configs/quadras.yaml
+python -m src.train.train               --config configs/quadras.yaml
+python -m src.inference.predict         --config configs/quadras.yaml --city Malta
+python -m src.postprocess.vectorize     --config configs/quadras.yaml --city Malta
+```
+
+> **Lotes** (`configs/lotes.yaml`) são experimentais: muitos limites são jurídicos/invisíveis
+> na imagem, então a extração por DL tende a ser limitada. O caminho robusto é subdividir as
+> quadras com edificações + limites visíveis + dado cadastral.

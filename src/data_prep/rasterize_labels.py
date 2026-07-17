@@ -16,7 +16,7 @@ import numpy as np
 import rasterio
 from rasterio.features import rasterize
 
-from src.utils import ensure_dir, load_config
+from src.utils import ensure_dir, load_config, target_name
 
 
 def rasterize_city(image_cog: str, labels_path: str, out_mask: str) -> str:
@@ -63,9 +63,10 @@ def rasterize_city(image_cog: str, labels_path: str, out_mask: str) -> str:
 def _run_from_config(config_path: str) -> None:
     cfg = load_config(config_path)
     processed_dir = Path(cfg["data_prep"]["processed_dir"])
+    target = target_name(cfg)
     for city in cfg["cities"]:
         cog = processed_dir / f"{city['name']}.tif"
-        out_mask = processed_dir / f"{city['name']}_mask.tif"
+        out_mask = processed_dir / f"{city['name']}_{target}_mask.tif"
         rasterize_city(str(cog), city["labels"], str(out_mask))
     print("[rasterize] Concluído.")
 

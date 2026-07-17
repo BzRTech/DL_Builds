@@ -21,7 +21,7 @@ import numpy as np
 import rasterio
 from rasterio.windows import Window
 
-from src.utils import ensure_dir, load_config
+from src.utils import ensure_dir, load_config, target_name
 
 
 def _iter_windows(width: int, height: int, size: int, stride: int):
@@ -112,11 +112,12 @@ def _run_from_config(config_path: str) -> None:
     images_dir = ensure_dir(tiles_dir / "images")
     masks_dir = ensure_dir(tiles_dir / "masks")
 
+    target = target_name(cfg)
     all_rows: list[dict] = []
     city_split = {c["name"]: c.get("split", "train") for c in cfg["cities"]}
     for city in cfg["cities"]:
         cog = processed_dir / f"{city['name']}.tif"
-        mask = processed_dir / f"{city['name']}_mask.tif"
+        mask = processed_dir / f"{city['name']}_{target}_mask.tif"
         rows = tile_city(
             name=city["name"],
             image_cog=str(cog),

@@ -1,0 +1,64 @@
+# Configuração para extração de QUADRAS.
+# Quadras são grandes e separadas por ruas -> segmentação + componentes conectados
+# (sem watershed). Reutiliza a ortofoto COG já convertida em data/processed.
+
+project:
+  name: quadras_pilot
+  target: quadras          # separa máscara/tiles/modelo dos outros alvos
+  seed: 42
+
+cities:
+  - name: Malta
+    image: data/raw/Malta/ortofoto.tif
+    labels: data/raw/Malta/quadras_merged.gpkg
+    split: train
+
+data_prep:
+  processed_dir: data/processed     # COMPARTILHADO: reusa data/processed/Malta.tif
+  tiles_dir: data/tiles_quadras
+  tile_size: 512
+  overlap: 128
+  bands: [1, 2, 3]
+  min_building_coverage: 0.02       # fração mínima de quadra no tile (pula quase-vazios)
+  val_fraction: 0.15
+
+model:
+  arch: Unet
+  encoder: resnet34
+  encoder_weights: imagenet
+  in_channels: 3
+  classes: 1
+
+train:
+  device: cuda
+  epochs: 60
+  batch_size: 8
+  num_workers: 4
+  lr: 0.0003
+  weight_decay: 0.0001
+  amp: true
+  early_stop_patience: 12
+  dice_weight: 0.5
+  out_dir: runs/quadras
+  norm_mean: null
+  norm_std: null
+
+inference:
+  checkpoint: runs/quadras/best.pt
+  threshold: 0.5
+  window: 512
+  overlap: 128
+  batch_size: 8
+  out_mask_dir: outputs/masks_quadras
+
+postprocess:
+  min_area_m2: 200.0                # quadras são grandes; descarta ruído pequeno
+  simplify_tolerance_m: 1.0
+  orthogonalize: false              # quadras não são retângulos simples
+  fill_holes_m2: 50.0
+  out_vector: outputs/quadras.gpkg
+  instance_separation: false        # quadras já vêm separadas pelas ruas
+
+eval:
+  iou_thresholds: [0.5]
+  report_dir: outputs/eval_quadras

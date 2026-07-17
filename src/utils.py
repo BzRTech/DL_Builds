@@ -36,6 +36,11 @@ def ensure_dir(path: str | os.PathLike) -> Path:
     return p
 
 
+def target_name(cfg: dict) -> str:
+    """Nome do alvo (buildings/quadras/lotes) usado para separar máscaras/tiles/modelos."""
+    return cfg.get("project", {}).get("target", "buildings")
+
+
 def has_ecw_driver() -> bool:
     """Indica se o GDAL instalado consegue ler ECW (driver proprietário da ERDAS)."""
     try:
