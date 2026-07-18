@@ -12,6 +12,10 @@ cities:
     image: data/raw/Malta/ortofoto.tif
     labels: data/raw/Malta/quadras_merged.gpkg
     split: train
+  - name: catole
+    image: data/raw/catole/ORTOMOSAICO_CATOLE_DO_ROCHA.tif
+    labels: "data/raw/catole/QUADRAS LOTEAMENTOS.shp"
+    split: train
 
 data_prep:
   processed_dir: data/processed     # COMPARTILHADO: reusa data/processed/Malta.tif
