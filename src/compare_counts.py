@@ -15,11 +15,23 @@ import argparse
 import geopandas as gpd
 
 
-def compare(pred_path: str, truth_path: str) -> dict:
+def compare(pred_path: str, truth_path: str, clip_to_truth: bool = False,
+            buffer_m: float = 0.0) -> dict:
     pred = gpd.read_file(pred_path)
     truth = gpd.read_file(truth_path)
     if truth.crs is not None and pred.crs is not None and pred.crs != truth.crs:
         truth = truth.to_crs(pred.crs)
+
+    # Comparação justa: recorta a predição à área efetivamente rotulada
+    # (união dos rótulos, com um buffer opcional). Evita penalizar o modelo por
+    # detectar prédios em regiões que a verdade não cobre.
+    if clip_to_truth:
+        area_of_interest = truth.geometry.union_all()
+        if buffer_m > 0:
+            area_of_interest = area_of_interest.buffer(buffer_m)
+        pred = pred[pred.intersects(area_of_interest)]
+        print(f"(comparação restrita à área rotulada"
+              f"{f', buffer {buffer_m} m' if buffer_m else ''})")
 
     n_pred, n_truth = len(pred), len(truth)
     area_pred = float(pred.geometry.area.sum())
@@ -41,8 +53,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Compara quantidade/área verdade vs. predição.")
     ap.add_argument("--pred", required=True, help="GeoPackage/Shapefile previsto.")
     ap.add_argument("--truth", required=True, help="GeoPackage/Shapefile de verdade.")
+    ap.add_argument("--clip-to-truth", action="store_true",
+                    help="Recorta a predição à área rotulada (comparação justa).")
+    ap.add_argument("--buffer-m", type=float, default=0.0,
+                    help="Buffer (m) na área rotulada ao recortar (ex.: 20).")
     args = ap.parse_args()
-    compare(args.pred, args.truth)
+    compare(args.pred, args.truth, clip_to_truth=args.clip_to_truth,
+            buffer_m=args.buffer_m)
 
 
 if __name__ == "__main__":
