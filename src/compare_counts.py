@@ -29,7 +29,10 @@ def compare(pred_path: str, truth_path: str, clip_to_truth: bool = False,
         area_of_interest = truth.geometry.union_all()
         if buffer_m > 0:
             area_of_interest = area_of_interest.buffer(buffer_m)
-        pred = pred[pred.intersects(area_of_interest)]
+        # Recorta a GEOMETRIA à área rotulada (não só filtra): assim a área é
+        # honesta mesmo para polígonos grandes que transbordam a região.
+        pred = gpd.clip(pred, area_of_interest)
+        pred = pred[~pred.geometry.is_empty & pred.geometry.notna()]
         print(f"(comparação restrita à área rotulada"
               f"{f', buffer {buffer_m} m' if buffer_m else ''})")
 
