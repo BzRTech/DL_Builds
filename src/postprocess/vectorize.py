@@ -105,12 +105,18 @@ def vectorize(prob_path: str, output_path: str, cfg: dict) -> str:
     threshold = cfg["inference"]["threshold"]
 
     with rasterio.open(prob_path) as src:
-        prob = src.read(1)
         transform = src.transform
         crs = src.crs
-        pixel_area = abs(transform.a * transform.e)  # m² por pixel (CRS projetado)
+        height, width = src.height, src.width
+        # Constrói a binária em blocos (uint8), evitando carregar o float32
+        # inteiro na RAM — essencial em ortofotos gigantes (dezenas de gigapixels).
+        binary = np.zeros((height, width), dtype=np.uint8)
+        blk = 4096
+        for r0 in range(0, height, blk):
+            r1 = min(r0 + blk, height)
+            prob_block = src.read(1, window=Window(0, r0, width, r1 - r0))
+            binary[r0:r1] = (prob_block >= threshold).astype(np.uint8)
 
-    binary = (prob >= threshold).astype(np.uint8)
     if binary.sum() == 0:
         print("[vectorize] AVISO: máscara vazia após threshold — nenhum polígono.")
 
