@@ -79,11 +79,16 @@ def rasterize_city(image_cog: str, labels_path: str, out_mask: str,
     return out_mask
 
 
-def _run_from_config(config_path: str) -> None:
+def _run_from_config(config_path: str, only: str | None = None) -> None:
     cfg = load_config(config_path)
     processed_dir = Path(cfg["data_prep"]["processed_dir"])
     target = target_name(cfg)
-    for city in cfg["cities"]:
+    cities = cfg["cities"]
+    if only:
+        cities = [c for c in cities if c["name"] == only]
+        if not cities:
+            raise SystemExit(f"Cidade '{only}' não está na config.")
+    for city in cities:
         cog = processed_dir / f"{city['name']}.tif"
         out_mask = processed_dir / f"{city['name']}_{target}_mask.tif"
         rasterize_city(str(cog), city["labels"], str(out_mask))
@@ -91,10 +96,11 @@ def _run_from_config(config_path: str) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Rasteriza rótulos de edificações em máscaras.")
+    ap = argparse.ArgumentParser(description="Rasteriza rótulos em máscaras.")
     ap.add_argument("--config", required=True, help="Config YAML.")
+    ap.add_argument("--only", help="Rasteriza apenas esta cidade.")
     args = ap.parse_args()
-    _run_from_config(args.config)
+    _run_from_config(args.config, only=args.only)
 
 
 if __name__ == "__main__":
