@@ -104,18 +104,35 @@ def tile_city(
     return rows_manifest
 
 
-def _run_from_config(config_path: str) -> None:
+FIELDNAMES = ["tile_id", "city", "city_split", "split", "row_off",
+              "col_off", "coverage", "image", "mask"]
+
+
+def _run_from_config(config_path: str, only: str | None = None) -> None:
     cfg = load_config(config_path)
     dp = cfg["data_prep"]
     processed_dir = Path(dp["processed_dir"])
     tiles_dir = ensure_dir(dp["tiles_dir"])
     images_dir = ensure_dir(tiles_dir / "images")
     masks_dir = ensure_dir(tiles_dir / "masks")
+    manifest_path = tiles_dir / "manifest.csv"
 
     target = target_name(cfg)
-    all_rows: list[dict] = []
     city_split = {c["name"]: c.get("split", "train") for c in cfg["cities"]}
-    for city in cfg["cities"]:
+    cities = cfg["cities"]
+    if only:
+        cities = [c for c in cities if c["name"] == only]
+        if not cities:
+            raise SystemExit(f"Cidade '{only}' não está na config.")
+
+    # Modo incremental (--only): preserva as linhas das outras cidades já tiladas.
+    existing_rows: list[dict] = []
+    if only and manifest_path.exists():
+        with open(manifest_path, newline="", encoding="utf-8") as f:
+            existing_rows = [r for r in csv.DictReader(f) if r["city"] != only]
+
+    new_rows: list[dict] = []
+    for city in cities:
         cog = processed_dir / f"{city['name']}.tif"
         mask = processed_dir / f"{city['name']}_{target}_mask.tif"
         rows = tile_city(
@@ -132,23 +149,24 @@ def _run_from_config(config_path: str) -> None:
         # Marca o split de cidade (train/test); split.py separa train->train/val.
         for r in rows:
             r["city_split"] = city_split[r["city"]]
-        all_rows.extend(rows)
+        new_rows.extend(rows)
 
-    manifest_path = tiles_dir / "manifest.csv"
-    fieldnames = ["tile_id", "city", "city_split", "split", "row_off",
-                  "col_off", "coverage", "image", "mask"]
+    all_rows = existing_rows + new_rows
     with open(manifest_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
         writer.writeheader()
         writer.writerows(all_rows)
-    print(f"[tile] Manifest escrito: {manifest_path} ({len(all_rows)} tiles).")
+    extra = f" (+{len(existing_rows)} preservados)" if only else ""
+    print(f"[tile] Manifest escrito: {manifest_path} ({len(all_rows)} tiles{extra}).")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Recorta COGs+máscaras em tiles pareados.")
     ap.add_argument("--config", required=True, help="Config YAML.")
+    ap.add_argument("--only", help="Tila apenas esta cidade e anexa ao manifest "
+                                   "existente (não re-tila as demais).")
     args = ap.parse_args()
-    _run_from_config(args.config)
+    _run_from_config(args.config, only=args.only)
 
 
 if __name__ == "__main__":

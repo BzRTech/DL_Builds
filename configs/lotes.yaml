@@ -19,6 +19,10 @@ cities:
     image: data/raw/catole/ORTOMOSAICO_CATOLE_DO_ROCHA.tif
     labels: data/raw/catole/Lotes.shp
     split: train
+  - name: Tabira
+    image: data/raw/Tabira/ortofoto_tabira.tif
+    labels: data/raw/Tabira/Lotes_Tabira.shp
+    split: train
 
 data_prep:
   processed_dir: data/processed     # COMPARTILHADO: reusa data/processed/Malta.tif

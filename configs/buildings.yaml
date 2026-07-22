@@ -18,6 +18,10 @@ cities:
     image: data/raw/catole/ORTOMOSAICO_CATOLE_DO_ROCHA.tif
     labels: data/raw/catole/Edificacoes.shp
     split: train
+  - name: Tabira
+    image: data/raw/Tabira/ortofoto_tabira.tif
+    labels: data/raw/Tabira/Edificacoes_Tabira.shp
+    split: train
 
 # ---------------------------------------------------------------------------
 # Preparo de dados
