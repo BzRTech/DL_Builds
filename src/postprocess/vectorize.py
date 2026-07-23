@@ -121,7 +121,14 @@ def vectorize(prob_path: str, output_path: str, cfg: dict) -> str:
         print("[vectorize] AVISO: máscara vazia após threshold — nenhum polígono.")
 
     instance_sep = pcfg.get("instance_separation", False)
-    min_peak = int(pcfg.get("min_peak_distance_px", 25))
+    # Distância mínima entre "picos" (centros de prédios). Em METROS é consistente
+    # entre cidades com resoluções (GSD) diferentes; converte para pixels pela
+    # resolução do raster. Cai para _px se _m não estiver definido.
+    pixel_size = abs(transform.a)  # m por pixel (CRS projetado)
+    if pcfg.get("min_peak_distance_m") is not None:
+        min_peak = max(1, int(round(float(pcfg["min_peak_distance_m"]) / pixel_size)))
+    else:
+        min_peak = int(pcfg.get("min_peak_distance_px", 25))
     tile_px = int(pcfg.get("instance_tile_px", 4096))
     overlap_px = int(pcfg.get("instance_overlap_px", 512))
 
