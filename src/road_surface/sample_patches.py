@@ -25,6 +25,7 @@ import rasterio
 from rasterio.windows import Window
 from shapely.geometry import LineString, MultiLineString
 
+from src.road_surface.labels import norm_label
 from src.utils import ensure_dir, load_config
 
 INPUT_SIZE = 96  # tamanho fixo do patch para o modelo (px)
@@ -56,7 +57,7 @@ def sample_city(image_cog: str, roads_path: str, class_field: str,
         patches, labels, splits = [], [], []
         per_class = {c: 0 for c in class_to_idx}
         for _, row in gdf.iterrows():
-            cls = row.get(class_field)
+            cls = norm_label(row.get(class_field))
             if cls not in class_to_idx:
                 continue
             split = "val" if rng.random() < val_fraction else "train"
@@ -94,7 +95,7 @@ def _run_from_config(config_path: str) -> None:
     cfg = load_config(config_path)
     dp = cfg["data_prep"]
     classes = cfg["classes"]
-    class_to_idx = {c: i for i, c in enumerate(classes)}
+    class_to_idx = {norm_label(c): i for i, c in enumerate(classes)}
 
     all_p, all_l, all_s = [], [], []
     for city in cfg["cities"]:

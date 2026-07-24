@@ -12,6 +12,14 @@ cities:
     image: data/processed/Tabira.tif          # COG já gerado
     roads: data/raw/Tabira/Logradouros_Tabira.shp
     split: train
+  - name: Malta
+    image: data/processed/Malta.tif
+    roads: data/raw/Malta/LOGRADOUROS_MALTA.shp
+    split: train
+  - name: catole
+    image: data/processed/catole.tif
+    roads: data/raw/catole/LOGRADOUROS.shp
+    split: train
 
 # Campo do shapefile com a classe e as classes na ordem do modelo.
 class_field: STATUS
