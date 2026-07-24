@@ -1,0 +1,47 @@
+# Classificação do tipo de pavimento das vias (logradouros).
+# Problema de CLASSIFICAÇÃO (não segmentação): a geometria das ruas já existe;
+# o modelo aprende a classe de piso de cada trecho a partir da textura na ortofoto.
+
+project:
+  name: road_surface
+  seed: 42
+
+# Uma entrada por cidade que tenha logradouros classificados (campo STATUS).
+cities:
+  - name: Tabira
+    image: data/processed/Tabira.tif          # COG já gerado
+    roads: data/raw/Tabira/Logradouros_Tabira.shp
+    split: train
+
+# Campo do shapefile com a classe e as classes na ordem do modelo.
+class_field: STATUS
+classes:
+  - NAO PAVIMENTADA
+  - PAVIMENTADA
+  - REVESTIMENTO ASFALTICO
+
+data_prep:
+  patches_dir: data/road_patches
+  patch_size_m: 6.0        # tamanho físico do recorte (m) — convertido p/ px pela resolução
+  step_m: 8.0              # amostra um patch a cada X m ao longo do trecho
+  bands: [1, 2, 3]         # RGB
+  min_valid_frac: 0.5      # descarta patch com > metade de pixels pretos (borda/sem dado)
+  val_fraction: 0.15       # fração de TRECHOS reservada para validação (sem vazamento)
+
+model:
+  arch: resnet18
+  pretrained: true
+
+train:
+  device: cuda
+  epochs: 40
+  batch_size: 64
+  num_workers: 4
+  lr: 0.0005
+  weight_decay: 0.0001
+  early_stop_patience: 8
+  out_dir: runs/road_surface
+
+predict:
+  checkpoint: runs/road_surface/best.pt
+  out_vector: outputs/logradouros_classificados.gpkg

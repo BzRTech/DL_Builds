@@ -117,7 +117,25 @@ interface para abrir e revisar as camadas geradas.
 - [ ] Fase 4 — Avaliação (IoU/F1, leave-one-city-out)
 - [x] Inferência em cidade nova (`src/predict_city.py`)
 - [x] Suporte a múltiplos alvos (`configs/quadras.yaml`, `configs/lotes.yaml`)
+- [x] Classificação de pavimento das vias (`src/road_surface/`, `configs/road_surface.yaml`)
 - [ ] Interface web (upload + progresso + mapa) — Streamlit/Gradio
+
+## Classificação de pavimento das vias (logradouros)
+
+Problema de **classificação** (não segmentação): a geometria das ruas já existe (shapefile de
+logradouros em linha); o modelo aprende o **tipo de piso** de cada trecho pela textura na
+ortofoto (campo `STATUS`: não pavimentada / pavimentada / asfáltico). Amostra patches ao longo
+de cada trecho → classificador CNN (ResNet) de 3 classes → votação por trecho.
+
+```bash
+python -m src.road_surface.sample_patches --config configs/road_surface.yaml
+python -m src.road_surface.train           --config configs/road_surface.yaml
+python -m src.road_surface.predict         --config configs/road_surface.yaml --city Tabira
+# cidade nova (geometria das vias sem classe + ortofoto):
+python -m src.road_surface.predict --config configs/road_surface.yaml \
+    --roads data/raw/NovaCidade/logradouros.shp --image data/processed/NovaCidade.tif \
+    --out outputs/NovaCidade_vias.gpkg
+```
 
 ## Múltiplos alvos: quadras e lotes
 
