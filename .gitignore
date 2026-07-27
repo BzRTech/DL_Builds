@@ -1,13 +1,15 @@
-# Dados e artefatos (nunca versionar rasters/modelos grandes)
+# Dados e artefatos grandes (não versionar)
 data/
 outputs/
-runs/
 *.tif
 *.tiff
 *.ecw
-*.pt
-*.pth
-*.ckpt
+
+# Logs de treino são ignorados, MAS os checkpoints best.pt são versionados
+# via Git LFS (ver .gitattributes) para poder rodar em outra máquina.
+runs/**
+!runs/**/
+!runs/**/best.pt
 
 # Python
 __pycache__/

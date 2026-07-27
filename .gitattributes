@@ -1,0 +1,3 @@
+# Versiona os checkpoints dos modelos via Git LFS (binários grandes).
+runs/**/best.pt filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
