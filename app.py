@@ -66,12 +66,17 @@ def results_view() -> None:
     st.subheader("📂 Resultados já gerados")
     cities = sorted(p.name for p in OUTPUTS.iterdir() if p.is_dir()) if OUTPUTS.exists() else []
     cities = [c for c in cities if not c.startswith("_")]
-    if not cities:
+    loose = sorted(OUTPUTS.glob("*.gpkg")) if OUTPUTS.exists() else []
+    options = cities + (["(arquivos soltos em outputs/)"] if loose else [])
+    if not options:
         st.info("Ainda não há resultados em `outputs/`. Rode uma extração no modo "
                 "**Executar**.")
         return
-    city = st.selectbox("Cidade", cities)
-    gpkgs = sorted(p for p in (OUTPUTS / city).glob("*.gpkg"))
+    city = st.selectbox("Cidade / grupo", options)
+    if city.startswith("("):
+        gpkgs = loose
+    else:
+        gpkgs = sorted(p for p in (OUTPUTS / city).glob("*.gpkg"))
     if not gpkgs:
         st.warning(f"Nenhuma camada .gpkg em `outputs/{city}/`.")
         return
