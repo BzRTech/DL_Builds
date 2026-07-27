@@ -96,11 +96,10 @@ def _split_rects(quadra: Polygon, builds: list, min_area: float,
         exts = sorted((b.bounds[0], b.bounds[2]) for b in br if y0 <= b.centroid.y < y1)
         bounds = [minx]
         for i in range(len(exts) - 1):
-            gap_lo, gap_hi = exts[i][1], exts[i + 1][0]            # fim de um / início do próximo
-            if gap_hi <= gap_lo:                                   # sobrepõem em x -> mesmo lote
-                continue
-            c = (gap_lo + gap_hi) / 2                              # corte no meio do vão
-            if c - bounds[-1] >= min_lot_width and maxx - c >= min_lot_width:
+            # corte na DIVISA entre duas casas consecutivas (fim de uma / início da
+            # próxima) -> 1 lote fino por edificação, como no cadastro oficial.
+            c = (exts[i][1] + exts[i + 1][0]) / 2
+            if c - bounds[-1] > max(min_lot_width, 0.05) and maxx - c > max(min_lot_width, 0.05):
                 bounds.append(c)
         bounds.append(maxx)
         for i in range(len(bounds) - 1):
