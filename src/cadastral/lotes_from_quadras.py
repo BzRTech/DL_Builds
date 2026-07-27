@@ -51,8 +51,22 @@ def _split_voronoi(quadra: Polygon, seeds: list) -> list[Polygon]:
     return lots or [quadra]
 
 
+def _row_bounds(xs: list, lo: float, hi: float, min_w: float) -> list[float]:
+    """Posições de corte (incluindo lo e hi) nos meios entre prédios; se min_w>0,
+    descarta cortes que gerariam tiras mais estreitas que min_w (funde os finos)."""
+    cuts = [(xs[i] + xs[i + 1]) / 2 for i in range(len(xs) - 1)]
+    if min_w <= 0:
+        return [lo] + cuts + [hi]
+    bounds = [lo]
+    for c in cuts:
+        if c - bounds[-1] >= min_w and hi - c >= min_w:
+            bounds.append(c)
+    bounds.append(hi)
+    return bounds
+
+
 def _split_rects(quadra: Polygon, seeds: list, min_area: float,
-                 min_row_depth: float = 8.0) -> list[Polygon]:
+                 min_row_depth: float = 8.0, min_lot_width: float = 0.0) -> list[Polygon]:
     """Corta a quadra em tiras retangulares perpendiculares à via, nas posições
     das edificações; 2 fileiras (frente/fundo) se a quadra for funda o bastante."""
     if len(seeds) < 2:
@@ -74,8 +88,7 @@ def _split_rects(quadra: Polygon, seeds: list, min_area: float,
         if band.is_empty:
             continue
         xs = sorted(x for x, y in spts if y0 <= y < y1)
-        cuts = [(xs[i] + xs[i + 1]) / 2 for i in range(len(xs) - 1)]  # meio entre prédios
-        xb = [minx] + cuts + [maxx]
+        xb = _row_bounds(xs, minx, maxx, min_lot_width) if xs else [minx, maxx]
         for i in range(len(xb) - 1):
             lots_rot.extend(_polys(box(xb[i], y0, xb[i + 1], y1).intersection(band)))
 
@@ -86,7 +99,8 @@ def _split_rects(quadra: Polygon, seeds: list, min_area: float,
 
 
 def build_lotes(quadras_path: str, buildings_path: str, crs: str, min_area_m2: float,
-                method: str = "rect", min_row_depth: float = 8.0) -> gpd.GeoDataFrame:
+                method: str = "rect", min_row_depth: float = 8.0,
+                min_lot_width: float = 0.0) -> gpd.GeoDataFrame:
     quadras = gpd.read_file(quadras_path).to_crs(crs)
     builds = gpd.read_file(buildings_path).to_crs(crs)
     b_centroids = builds.geometry.centroid
@@ -99,7 +113,8 @@ def build_lotes(quadras_path: str, buildings_path: str, crs: str, min_area_m2: f
         if method == "voronoi":
             lots.extend(_split_voronoi(quadra, seeds))
         else:
-            lots.extend(_split_rects(quadra, seeds, min_area_m2, min_row_depth))
+            lots.extend(_split_rects(quadra, seeds, min_area_m2, min_row_depth,
+                                     min_lot_width))
 
     lots = [g for g in lots if g.area >= min_area_m2]
     gdf = gpd.GeoDataFrame(
@@ -116,12 +131,13 @@ def _run(config_path: str) -> None:
     p = cfg["params"]
     method = p.get("method", "rect")
     min_row_depth = float(p.get("lot_min_depth_m", 8.0))
+    min_lot_width = float(p.get("min_lot_width_m", 0.0))
     for city in cfg["cities"]:
         quadras_path = Path(cfg["out_dir"]) / city["name"] / "quadras_vias.gpkg"
         if not quadras_path.exists():
             raise SystemExit(f"Rode quadras_from_roads antes: falta {quadras_path}")
         gdf = build_lotes(str(quadras_path), city["buildings"], cfg["crs"],
-                          p["min_lote_area_m2"], method, min_row_depth)
+                          p["min_lote_area_m2"], method, min_row_depth, min_lot_width)
         out = ensure_dir(Path(cfg["out_dir"]) / city["name"]) / "lotes_vias.gpkg"
         gdf.to_file(out, driver="GPKG", layer="lotes")
         print(f"[lotes_vias] -> {out}")
