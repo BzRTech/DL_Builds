@@ -33,3 +33,4 @@ dependencies:
   - pip:
       - segmentation-models-pytorch>=0.3.3
       - albumentations>=1.3
+      - streamlit>=1.30

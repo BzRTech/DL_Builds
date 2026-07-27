@@ -118,7 +118,20 @@ interface para abrir e revisar as camadas geradas.
 - [x] Inferência em cidade nova (`src/predict_city.py`)
 - [x] Suporte a múltiplos alvos (`configs/quadras.yaml`, `configs/lotes.yaml`)
 - [x] Classificação de pavimento das vias (`src/road_surface/`, `configs/road_surface.yaml`)
-- [ ] Interface web (upload + progresso + mapa) — Streamlit/Gradio
+- [x] Interface web local (`app.py` — Streamlit)
+
+## Interface web (local / servidor)
+
+App Streamlit que roda **na máquina com GPU + dados** (sem upload de ortofotos gigantes):
+aponta um COG em `data/processed/`, escolhe os produtos (edificações/quadras/lotes/vias),
+executa e salva em **`outputs/<cidade>/`**, com prévia e botão de download.
+
+```bash
+streamlit run app.py
+```
+
+Abre em `http://localhost:8501`. Na rede local, a equipe acessa pelo IP da máquina
+(ex.: `http://SEU_IP:8501`). Para expor a toda a rede: `streamlit run app.py --server.address 0.0.0.0`.
 
 ## Classificação de pavimento das vias (logradouros)
 
