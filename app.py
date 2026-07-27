@@ -3,7 +3,7 @@
 Roda na máquina com GPU + dados; acessível pelo navegador em localhost e, na
 rede local, pelo IP da máquina (ex.: http://SEU_IP:8501). Aponta arquivos no
 disco (sem upload de ortofotos gigantes), executa os modelos e organiza a saída
-em outputs/<cidade>/.
+em outputs/<cidade>/. Também navega/visualiza os resultados já gerados.
 
 Uso:
     streamlit run app.py
@@ -31,30 +31,7 @@ SEG_PRODUCTS = {
     "Quadras": ("configs/quadras.yaml", "quadras"),
     "Lotes": ("configs/lotes.yaml", "lotes"),
 }
-
-# ---------------------------------------------------------------- barra lateral
-st.sidebar.header("Entrada")
-city = st.sidebar.text_input("Nome da cidade", "NovaCidade").strip() or "NovaCidade"
-
-processed = sorted(str(p) for p in Path("data/processed").glob("*.tif"))
-if processed:
-    image = st.sidebar.selectbox("Ortofoto (COG em data/processed)", processed)
-else:
-    image = st.sidebar.text_input("Caminho da ortofoto (COG .tif)",
-                                  "data/processed/NovaCidade.tif")
-
-products = st.sidebar.multiselect(
-    "O que extrair", list(SEG_PRODUCTS) + ["Vias (pavimento)"],
-    default=["Edificações"])
-
-roads = ""
-if "Vias (pavimento)" in products:
-    roads = st.sidebar.text_input("Shapefile de logradouros (linhas)",
-                                  f"data/raw/{city}/logradouros.shp")
-
-run = st.sidebar.button("🚀 Executar", type="primary")
-st.sidebar.info("O progresso detalhado (janelas processadas) aparece no terminal "
-                "onde você rodou `streamlit run app.py`.")
+OUTPUTS = Path("outputs")
 
 
 def _preview(gpkg: str, title: str, max_feats: int = 3000) -> None:
@@ -71,19 +48,81 @@ def _preview(gpkg: str, title: str, max_feats: int = 3000) -> None:
     ax.set_axis_off()
     ax.set_aspect("equal")
     st.pyplot(fig)
+    plt.close(fig)
     data = Path(gpkg).read_bytes()
     if len(data) < 200_000_000:
-        st.download_button(f"⬇️ Baixar {Path(gpkg).name}", data,
+        st.download_button(f"⬇️ Baixar {Path(gpkg).name}", data, key=f"dl_{gpkg}",
                            file_name=Path(gpkg).name, mime="application/geopackage+sqlite3")
     else:
         st.caption("Arquivo grande — abra direto no QGIS pelo caminho acima.")
 
 
-if run:
+# ============================================================ barra lateral
+mode = st.sidebar.radio("Modo", ["▶️ Executar extração", "📂 Ver resultados prontos"])
+
+
+# ============================================================ MODO: RESULTADOS
+def results_view() -> None:
+    st.subheader("📂 Resultados já gerados")
+    cities = sorted(p.name for p in OUTPUTS.iterdir() if p.is_dir()) if OUTPUTS.exists() else []
+    cities = [c for c in cities if not c.startswith("_")]
+    if not cities:
+        st.info("Ainda não há resultados em `outputs/`. Rode uma extração no modo "
+                "**Executar**.")
+        return
+    city = st.selectbox("Cidade", cities)
+    gpkgs = sorted(p for p in (OUTPUTS / city).glob("*.gpkg"))
+    if not gpkgs:
+        st.warning(f"Nenhuma camada .gpkg em `outputs/{city}/`.")
+        return
+    st.write(f"{len(gpkgs)} camada(s) em `outputs/{city}/`:")
+    for g in gpkgs:
+        with st.expander(g.stem, expanded=(len(gpkgs) == 1)):
+            try:
+                _preview(str(g), g.stem)
+            except Exception as e:  # noqa: BLE001
+                st.exception(e)
+
+
+# ============================================================ MODO: EXECUTAR
+def run_view() -> None:
+    st.sidebar.header("Entrada")
+    city = st.sidebar.text_input("Nome da cidade", "NovaCidade").strip() or "NovaCidade"
+
+    processed = sorted(str(p) for p in Path("data/processed").glob("*.tif"))
+    if processed:
+        image = st.sidebar.selectbox("Ortofoto (COG em data/processed)", processed)
+    else:
+        image = st.sidebar.text_input("Caminho da ortofoto (COG .tif)",
+                                      "data/processed/NovaCidade.tif")
+
+    products = st.sidebar.multiselect(
+        "O que extrair", list(SEG_PRODUCTS) + ["Vias (pavimento)"],
+        default=["Edificações"])
+
+    roads = ""
+    if "Vias (pavimento)" in products:
+        roads = st.sidebar.text_input("Shapefile de logradouros (linhas)",
+                                      f"data/raw/{city}/logradouros.shp")
+
+    run = st.sidebar.button("🚀 Executar", type="primary")
+    st.sidebar.info("O progresso detalhado (janelas processadas) aparece no terminal "
+                    "onde você rodou `streamlit run app.py`.")
+
+    if not run:
+        st.write("Configure a entrada na barra lateral e clique em **Executar**.")
+        st.markdown(
+            "- **Ortofoto**: use um COG já em `data/processed/` "
+            "(gere com `ecw_to_cog` se necessário).\n"
+            "- **Vias**: precisa do shapefile de logradouros (linhas).\n"
+            "- A saída de cada cidade fica em `outputs/<cidade>/`.\n"
+            "- Para ver o que já foi gerado, use o modo **Ver resultados prontos**.")
+        return
+
     if not Path(image).exists():
         st.error(f"Ortofoto não encontrada: {image}")
-        st.stop()
-    out_dir = ensure_dir(f"outputs/{city}")
+        return
+    out_dir = ensure_dir(OUTPUTS / city)
     tmp = ensure_dir(out_dir / "_tmp")
     st.write(f"Saída em **`outputs/{city}/`**")
 
@@ -102,7 +141,7 @@ if run:
                     cfg = load_config(cfg_path)
                     prob = str(tmp / f"{name}_prob.tif")
                     out = str(out_dir / f"{name}.gpkg")
-                    st.write("Inferência (janela deslizante)… pode demorar em ortofotos grandes.")
+                    st.write("Inferência (janela deslizante)… pode demorar em imagens grandes.")
                     predict_image(image, prob, cfg)
                     st.write("Vetorizando…")
                     vectorize(prob, out, cfg)
@@ -112,11 +151,11 @@ if run:
                 status.update(label=f"{prod} — erro", state="error")
                 st.exception(e)
 
-    st.success(f"Concluído! Camadas em outputs/{city}/ (abra no QGIS para revisar).")
+    st.success(f"Concluído! Camadas em outputs/{city}/ — veja também no modo "
+               "**Ver resultados prontos**.")
+
+
+if mode.startswith("📂"):
+    results_view()
 else:
-    st.write("Configure a entrada na barra lateral e clique em **Executar**.")
-    st.markdown(
-        "- **Ortofoto**: use um COG já convertido em `data/processed/` "
-        "(gere com `ecw_to_cog` se necessário).\n"
-        "- **Vias**: precisa do shapefile de logradouros (linhas) da cidade.\n"
-        "- A saída de cada cidade fica separada em `outputs/<cidade>/`.")
+    run_view()
