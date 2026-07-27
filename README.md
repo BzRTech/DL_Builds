@@ -1,171 +1,153 @@
-# DL_Builds — Extração de Edificações de Ortofotos com Deep Learning
+# DL_Builds — Extração automática de feições urbanas de ortofotos
 
-Sistema de deep learning para extrair automaticamente **edificações** (e, em fases
-futuras, **quadras** e **lotes**) a partir de **ortofotos**, gerando **camadas
-vetoriais GIS** (GeoPackage/Shapefile) prontas para QGIS/ArcGIS.
+Sistema de deep learning que, a partir de **ortofotos**, extrai automaticamente:
 
-Este repositório é o **piloto** focado em edificações. Ele monta um pipeline
-completo e reutilizável para processar novas cidades de forma automatizada.
+- **Edificações** — segmentação (footprint dos telhados)
+- **Quadras** — segmentação (blocos)
+- **Lotes** — segmentação (parcelas)
+- **Pavimento das vias** — classificação do tipo de piso de cada trecho de logradouro
 
-## Por que começar por edificações
+Saída em **camadas vetoriais GIS** (GeoPackage), prontas para QGIS/ArcGIS, organizadas por
+cidade em `outputs/<cidade>/`. Treina em cidades rotuladas e **aplica em cidades novas só com a
+ortofoto**.
 
-Os três alvos têm dificuldades muito diferentes para extração por DL:
+## Resultados do piloto
 
-| Alvo         | Visível na imagem? | Abordagem                                            |
-|--------------|--------------------|-----------------------------------------------------|
-| Edificações  | Sim (telhados)     | Segmentação semântica direta ✅ (este piloto)        |
-| Quadras      | Indireto           | Extrair rede viária → quadras = "negativo" das ruas |
-| Lotes        | Muitas vezes não   | Subdividir quadras + edificações + dados auxiliares  |
+Treinado em 3 cidades (**Malta, Catolé, Tabira**) e validado em uma **cidade cega**
+(**Itapororoca**, fora do treino):
 
-Edificações entregam valor rápido e o pipeline serve de base para os demais alvos.
+| Produto | Método | Validação (treino) | Teste cego (cidade nova) |
+|---|---|---|---|
+| **Edificações** | Segmentação | IoU **0,90** | razão de área **1,00** ✅ |
+| **Pavimento das vias** | Classificação | acurácia **92%** | acurácia **91%** ✅ |
+| **Quadras** | Segmentação | IoU **0,77** | footprint bom; divisão de blocos aproximada |
+| **Lotes** | Segmentação | IoU **0,77** | footprint razoável; limites finos são o limite do método |
 
-## Pipeline
-
-```
-ECW ortofoto ─┐
-              ├─► [1] Preparo ─► tiles (img+máscara) ─► [2] Treino ─► modelo (.pt)
-Shapefile ────┘                                                          │
-                                                                         ▼
-Nova ortofoto ─────────────────► [3] Inferência (sliding window) ─► máscara georref.
-                                                                         │
-                                                                         ▼
-                                          [4] Vetorização/regularização ─► [5] Avaliação
-                                                                         │
-                                                                         ▼
-                                                        GeoPackage/Shapefile (edificações)
-```
+> Edificações e vias generalizam muito bem para cidades novas. Quadras/lotes capturam bem a
+> **área**, mas a **contagem/divisão** exata é mais difícil por segmentação pura (ver
+> *Limitações*).
 
 ## Instalação
 
-Requer **conda/mamba** (por causa do GDAL) e uma **GPU NVIDIA** para o treino.
+Requer **conda/mamba** (por causa do GDAL) e uma **GPU NVIDIA** para treino/inferência.
 
 ```bash
-mamba env create -f environment.yml      # ou: conda env create -f environment.yml
+conda env create -f environment.yml      # ou: mamba env create -f environment.yml
 conda activate dl_builds
 ```
 
-> ⚠️ **Leitura de ECW:** o driver de leitura de ECW no GDAL depende do SDK
-> proprietário da ERDAS, que **não vem** no GDAL do conda-forge. Verifique com
-> `python -c "from osgeo import gdal; print('ECW' in [gdal.GetDriver(i).ShortName for i in range(gdal.GetDriverCount())])"`.
-> Se retornar `False`, converta os ECW para GeoTIFF/COG usando o **QGIS** (que
-> empacota o driver) antes de rodar o pipeline, ou instale um build do GDAL com
-> suporte a ECW. Os scripts abaixo aceitam tanto ECW (se o driver existir) quanto
-> GeoTIFF/COG.
+> ⚠️ **ECW:** o driver de leitura de ECW não vem no GDAL do conda-forge. Verifique com
+> `python -c "from src.utils import has_ecw_driver; print(has_ecw_driver())"`. Se `False`,
+> converta a ortofoto para **GeoTIFF** no **QGIS** antes (o QGIS embute o driver).
 
-## Uso (ponta a ponta)
+## Organização dos dados
 
-Organize os dados assim (a pasta `data/` é ignorada pelo git):
+A pasta `data/` (e `outputs/`, `runs/`) é ignorada pelo git — os rasters são grandes demais.
 
 ```
-data/raw/
-├── cidade_a/  (ortofoto.ecw  edificacoes.shp ...)
-└── cidade_b/  (ortofoto.ecw  edificacoes.shp ...)
+data/
+├── raw/<cidade>/         ortofoto (.tif/.ecw) + shapefiles de rótulo
+└── processed/<cidade>.tif   COG gerado (compartilhado por todos os alvos)
+outputs/<cidade>/         camadas previstas (edificacoes.gpkg, quadras.gpkg, ...)
+runs/<alvo>/best.pt       modelos treinados (edificações/quadras/lotes/road_surface)
 ```
 
-Ajuste caminhos e CRS em `configs/buildings.yaml` e rode:
+## Operação
 
-```bash
-bash scripts/run_pilot.sh
-```
-
-Ou execute estágio a estágio — ver `configs/buildings.yaml` e os módulos em `src/`.
-
-## Estrutura
-
-```
-src/
-├── data_prep/   ecw_to_cog.py · rasterize_labels.py · tile.py · split.py
-├── train/       dataset.py · model.py · train.py
-├── inference/   predict.py   (sliding window + blending)
-├── postprocess/ vectorize.py (máscara → polígono, regularização)
-└── eval/        evaluate.py
-```
-
-## Usar o modelo em uma cidade nova (só inferência)
-
-Quando chegar uma **ortofoto nova**, você **não** precisa de rótulos nem re-treinar —
-o modelo já treinado (`runs/buildings/best.pt`) extrai as edificações direto. Um comando:
-
-```bash
-python -m src.predict_city --image data/raw/NovaCidade/ortofoto.tif --out outputs/NovaCidade.gpkg
-```
-
-No Windows há também um atalho (duplo-clique ou linha de comando):
-
-```bat
-scripts\prever_nova_cidade.bat "data\raw\NovaCidade\ortofoto.tif" "outputs\NovaCidade.gpkg"
-```
-
-> Se a ortofoto nova for **ECW**, converta antes para GeoTIFF no QGIS (mesmo passo do piloto).
-> O resultado é um `GeoPackage` com os polígonos das edificações, pronto para o QGIS.
-
-## Interface (fase futura)
-
-Está previsto um **app web local** (Streamlit/Gradio) para: escolher/enviar a ortofoto,
-disparar a extração com **barra de progresso**, e **visualizar os polígonos sobre a imagem
-em um mapa**, com botão de download do GeoPackage. Observação: ortofotos têm vários GB, então
-o fluxo prático é apontar para o arquivo no disco/servidor (em vez de "upload" pelo navegador)
-e renderizar o resultado num mapa (Leaflet/folium). Enquanto isso, o **QGIS** já serve como
-interface para abrir e revisar as camadas geradas.
-
-## Roadmap
-
-- [x] Fase 0 — Setup e inspeção de dados
-- [ ] Fase 1 — Preparo de dados (conversão, rasterização, tiling, split)
-- [ ] Fase 2 — Treino do modelo de edificações
-- [ ] Fase 3 — Inferência + vetorização
-- [ ] Fase 4 — Avaliação (IoU/F1, leave-one-city-out)
-- [x] Inferência em cidade nova (`src/predict_city.py`)
-- [x] Suporte a múltiplos alvos (`configs/quadras.yaml`, `configs/lotes.yaml`)
-- [x] Classificação de pavimento das vias (`src/road_surface/`, `configs/road_surface.yaml`)
-- [x] Interface web local (`app.py` — Streamlit)
-
-## Interface web (local / servidor)
+### 1. Interface web (recomendado)
 
 App Streamlit que roda **na máquina com GPU + dados** (sem upload de ortofotos gigantes):
-aponta um COG em `data/processed/`, escolhe os produtos (edificações/quadras/lotes/vias),
-executa e salva em **`outputs/<cidade>/`**, com prévia e botão de download.
 
 ```bash
 streamlit run app.py
 ```
 
-Abre em `http://localhost:8501`. Na rede local, a equipe acessa pelo IP da máquina
-(ex.: `http://SEU_IP:8501`). Para expor a toda a rede: `streamlit run app.py --server.address 0.0.0.0`.
+Abre em `http://localhost:8501`. Aponte um COG de `data/processed/`, escolha os produtos,
+execute e baixe as camadas — tudo salvo em `outputs/<cidade>/`. Para a equipe acessar pela
+rede: `streamlit run app.py --server.address 0.0.0.0` → `http://SEU_IP:8501`.
 
-## Classificação de pavimento das vias (logradouros)
+### 2. Cidade nova por linha de comando (só inferência, sem rótulos)
 
-Problema de **classificação** (não segmentação): a geometria das ruas já existe (shapefile de
-logradouros em linha); o modelo aprende o **tipo de piso** de cada trecho pela textura na
-ortofoto (campo `STATUS`: não pavimentada / pavimentada / asfáltico). Amostra patches ao longo
-de cada trecho → classificador CNN (ResNet) de 3 classes → votação por trecho.
+```bash
+# 1) se for ECW, converta no QGIS para .tif; depois gere o COG:
+python -m src.data_prep.ecw_to_cog --input data/raw/<cidade>/ortofoto.tif --output data/processed/<cidade>.tif
+
+# 2) edificações:
+python -m src.predict_city --image data/processed/<cidade>.tif --out outputs/<cidade>/edificacoes.gpkg
+
+# 3) pavimento das vias (precisa da geometria dos logradouros):
+python -m src.road_surface.predict --config configs/road_surface.yaml \
+    --roads data/raw/<cidade>/logradouros.shp --image data/processed/<cidade>.tif \
+    --out outputs/<cidade>/vias.gpkg
+```
+
+### 3. Treinar / adicionar uma cidade ao treino
+
+Cada alvo tem sua config (`configs/buildings.yaml`, `quadras.yaml`, `lotes.yaml`). Para incluir
+uma cidade, adicione-a na lista `cities` da config e rode (o `--only <cidade>` processa só a
+cidade nova e **preserva** os tiles já feitos das outras — evita reprocessar ortofotos gigantes):
+
+```bash
+python -m src.data_prep.ecw_to_cog       --input data/raw/<cidade>/ortofoto.tif --output data/processed/<cidade>.tif
+python -m src.data_prep.rasterize_labels --config configs/buildings.yaml --only <cidade>
+python -m src.data_prep.tile             --config configs/buildings.yaml --only <cidade>
+python -m src.data_prep.split            --config configs/buildings.yaml
+python -m src.train.train                --config configs/buildings.yaml
+```
+
+Troque `--config` para `quadras.yaml` / `lotes.yaml` para os outros alvos.
+
+### 4. Pavimento das vias — treino
+
+Classificação (não segmentação): amostra patches ao longo de cada trecho → CNN (ResNet) de 3
+classes (`STATUS`: não pavimentada / pavimentada / asfáltico) → votação por trecho. Rótulos com
+grafias diferentes (acento/caixa) são normalizados automaticamente.
 
 ```bash
 python -m src.road_surface.sample_patches --config configs/road_surface.yaml
-python -m src.road_surface.train           --config configs/road_surface.yaml
-python -m src.road_surface.predict         --config configs/road_surface.yaml --city Tabira
-# cidade nova (geometria das vias sem classe + ortofoto):
-python -m src.road_surface.predict --config configs/road_surface.yaml \
-    --roads data/raw/NovaCidade/logradouros.shp --image data/processed/NovaCidade.tif \
-    --out outputs/NovaCidade_vias.gpkg
+python -m src.road_surface.train          --config configs/road_surface.yaml
+python -m src.road_surface.predict        --config configs/road_surface.yaml --city <cidade>
 ```
 
-## Múltiplos alvos: quadras e lotes
-
-O mesmo pipeline atende os três alvos — muda-se só o rótulo e o alvo (`project.target`
-namespeia máscara/tiles/modelo, e a ortofoto COG é reutilizada). Rode os mesmos comandos
-trocando o `--config`:
+### Utilitários de avaliação
 
 ```bash
-# Quadras (segmentação + componentes conectados; separadas pelas ruas)
-python -m src.data_prep.rasterize_labels --config configs/quadras.yaml
-python -m src.data_prep.tile            --config configs/quadras.yaml
-python -m src.data_prep.split           --config configs/quadras.yaml
-python -m src.train.train               --config configs/quadras.yaml
-python -m src.inference.predict         --config configs/quadras.yaml --city Malta
-python -m src.postprocess.vectorize     --config configs/quadras.yaml --city Malta
+# métricas por objeto (IoU) previsto x verdade
+python -m src.eval.evaluate      --config configs/buildings.yaml --pred outputs/<cidade>/edificacoes.gpkg --truth <rotulo>.shp
+# panorama rápido: nº e área, recortando à área rotulada (comparação justa)
+python -m src.compare_counts     --pred outputs/<cidade>/edificacoes.gpkg --truth <rotulo>.shp --clip-to-truth --buffer-m 20
+# juntar as camadas de uma cidade num único GeoPackage
+python -m src.combine_layers     --out outputs/<cidade>/resultado.gpkg --layer edificacoes=outputs/<cidade>/edificacoes.gpkg ...
 ```
 
-> **Lotes** (`configs/lotes.yaml`) são experimentais: muitos limites são jurídicos/invisíveis
-> na imagem, então a extração por DL tende a ser limitada. O caminho robusto é subdividir as
-> quadras com edificações + limites visíveis + dado cadastral.
+## Estrutura do projeto
+
+```
+app.py                        interface Streamlit
+configs/                      buildings · quadras · lotes · road_surface (YAML)
+src/
+├── data_prep/  ecw_to_cog · rasterize_labels · tile · split   (--only p/ incremental)
+├── train/      dataset · model · train                        (U-Net/DeepLabV3+, Dice+BCE)
+├── inference/  predict                                        (sliding window + blending, memmap)
+├── postprocess/vectorize                                      (polígonos, watershed por instância)
+├── eval/       evaluate                                       (IoU por objeto)
+├── road_surface/ sample_patches · dataset · train · predict · labels  (classificação de piso)
+├── predict_city.py           edificações em cidade nova (1 comando)
+├── compare_counts.py         nº/área previsto x verdade
+└── combine_layers.py         junta camadas num .gpkg
+```
+
+Pontos técnicos que permitem escala (ortofotos de dezenas de gigapixels):
+- **Inferência** acumula em `memmap` (disco) e grava em blocos — não carrega a imagem na RAM.
+- **Rasterização** e **vetorização** operam em blocos/tiles.
+- **Separação por instância** (watershed) roda em tiles; `min_peak_distance_m` (metros) mantém a
+  separação consistente entre cidades com resoluções (GSD) diferentes.
+
+## Limitações e próximos passos
+
+- **Quadras/Lotes:** a segmentação acerta a área, mas fundir/dividir blocos e lotes com fidelidade
+  precisa de outra abordagem — **cortar pela rede viária** (usando os logradouros) e, para lotes,
+  subdividir com edificações + dado cadastral. É a evolução natural.
+- **Edifícios/prédios encostados:** o watershed separa a maioria; casos densos podem exigir
+  segmentação por instância dedicada (Mask R-CNN).
+- **Generalização:** validada em 1 cidade cega; mais cidades no treino tende a melhorar ainda mais.
