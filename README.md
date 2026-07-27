@@ -143,6 +143,23 @@ Pontos técnicos que permitem escala (ortofotos de dezenas de gigapixels):
 - **Separação por instância** (watershed) roda em tiles; `min_peak_distance_m` (metros) mantém a
   separação consistente entre cidades com resoluções (GSD) diferentes.
 
+## Reconstrução cadastral (quadras/lotes pela rede viária)
+
+Alternativa **geométrica** (sem DL) para quadras e lotes, mais fiel que a segmentação:
+
+- **Quadras** = área urbana − ruas (logradouros bufferizados). Recorta os blocos pelas ruas reais.
+- **Lotes** = subdivisão de cada quadra por **Voronoi das edificações** (~1 lote por construção).
+
+```bash
+python -m src.cadastral.quadras_from_roads --config configs/cadastral.yaml
+python -m src.cadastral.lotes_from_quadras --config configs/cadastral.yaml
+```
+
+Gera `outputs/<cidade>/quadras_vias.gpkg` e `lotes_vias.gpkg`. Em `configs/cadastral.yaml`
+ajuste `street_buffer_m` (metade da largura da via) e aponte `buildings` para os prédios
+(rótulo, ou `outputs/<cidade>/edificacoes.gpkg` da extração). *Premissa dos lotes: ~1 lote por
+edificação — reconstrução aproximada, não os limites cadastrais legais.*
+
 ## Limitações e próximos passos
 
 - **Quadras/Lotes:** a segmentação acerta a área, mas fundir/dividir blocos e lotes com fidelidade

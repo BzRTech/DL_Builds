@@ -1,0 +1,18 @@
+# Reconstrução cadastral geométrica (quadras pela rede viária; lotes por Voronoi
+# das edificações). NÃO usa deep learning — usa a geometria dos logradouros e as
+# edificações (extraídas ou rotuladas).
+
+crs: EPSG:31984            # CRS de trabalho (métrico). Tudo é reprojetado para cá.
+
+cities:
+  - name: Tabira
+    roads: data/raw/Tabira/Logradouros_Tabira.shp
+    buildings: data/raw/Tabira/Edificacoes_Tabira.shp      # ou outputs/Tabira/edificacoes.gpkg
+    boundary: data/raw/Tabira/Perímetro_Urbano_Tabira.shp  # opcional (se vazio, usa o envelope das ruas)
+
+params:
+  street_buffer_m: 6.0        # metade da largura média das vias (buffer nas linhas)
+  min_quadra_area_m2: 150.0   # descarta "quadras" muito pequenas (sobras)
+  min_lote_area_m2: 30.0      # descarta lotes minúsculos
+
+out_dir: outputs              # saída em outputs/<cidade>/quadras_vias.gpkg e lotes_vias.gpkg
