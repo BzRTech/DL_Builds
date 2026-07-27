@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 from src.inference.predict import predict_image
+from src.pipeline import run_city
 from src.postprocess.vectorize import vectorize
 from src.road_surface.predict import classify_roads
 from src.utils import ensure_dir, load_config
@@ -58,7 +59,50 @@ def _preview(gpkg: str, title: str, max_feats: int = 3000) -> None:
 
 
 # ============================================================ barra lateral
-mode = st.sidebar.radio("Modo", ["▶️ Executar extração", "📂 Ver resultados prontos"])
+mode = st.sidebar.radio(
+    "Modo", ["🏙️ Cadastro completo", "▶️ Executar (avançado)", "📂 Ver resultados prontos"])
+
+
+# ==================================================== MODO: CADASTRO COMPLETO
+def full_view() -> None:
+    st.subheader("🏙️ Cadastro completo — só aponte a ortofoto")
+    st.caption("Roda tudo na ordem: edificações → quadras → lotes → vias, "
+               "salvando em outputs/<cidade>/.")
+    city = st.sidebar.text_input("Nome da cidade", "NovaCidade").strip() or "NovaCidade"
+    processed = sorted(str(p) for p in Path("data/processed").glob("*.tif"))
+    if processed:
+        image = st.sidebar.selectbox("Ortofoto (COG)", processed)
+    else:
+        image = st.sidebar.text_input("Caminho da ortofoto (COG .tif)",
+                                      "data/processed/NovaCidade.tif")
+    roads = st.sidebar.text_input(
+        "Logradouros (linhas) — para quadras/lotes/vias (opcional)",
+        f"data/raw/{city}/logradouros.shp")
+    run = st.sidebar.button("🚀 Rodar tudo", type="primary")
+
+    if not run:
+        st.info("Aponte a ortofoto (e, se tiver, os logradouros) e clique **Rodar tudo**. "
+                "Sem logradouros, roda só as edificações.")
+        return
+    if not Path(image).exists():
+        st.error(f"Ortofoto não encontrada: {image}")
+        return
+    roads_arg = roads if roads and Path(roads).exists() else None
+    if roads and roads_arg is None:
+        st.warning(f"Logradouros não encontrados ({roads}). Vou rodar só as edificações.")
+
+    with st.status("Executando o fluxo completo…", expanded=True) as status:
+        try:
+            results = run_city(image, city, roads_arg, log=st.write)
+            status.update(label="Fluxo completo ✓", state="complete")
+        except Exception as e:  # noqa: BLE001
+            status.update(label="Erro no fluxo", state="error")
+            st.exception(e)
+            return
+    st.success(f"Concluído! Camadas em outputs/{city}/")
+    for label, path in results:
+        with st.expander(label, expanded=(label == "Cadastro (lotes + edificações)")):
+            _preview(path, label)
 
 
 # ============================================================ MODO: RESULTADOS
@@ -162,5 +206,7 @@ def run_view() -> None:
 
 if mode.startswith("📂"):
     results_view()
+elif mode.startswith("🏙️"):
+    full_view()
 else:
     run_view()
