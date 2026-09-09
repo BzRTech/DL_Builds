@@ -26,7 +26,7 @@ from shapely.geometry import LineString, MultiLineString
 
 from src.road_surface.dataset import IMAGENET_MEAN, IMAGENET_STD
 from src.road_surface.train import build_classifier
-from src.utils import ensure_dir, load_config
+from src.utils import ensure_dir, has_ecw_driver, load_config
 
 
 def _iter_lines(geom):
@@ -34,6 +34,31 @@ def _iter_lines(geom):
         yield geom
     elif isinstance(geom, MultiLineString):
         yield from geom.geoms
+
+
+def _check_inputs(image_cog: str, roads_path: str, checkpoint: str) -> None:
+    """Falha cedo, com mensagem clara, nos tropeços mais comuns."""
+    if str(image_cog).lower().endswith(".ecw") and not has_ecw_driver():
+        raise SystemExit(
+            f"'{image_cog}' é ECW e o GDAL instalado não lê ECW.\n"
+            "Converta a ortofoto para GeoTIFF no QGIS e gere o COG com "
+            "'python -m src.data_prep.ecw_to_cog' (ver README)."
+        )
+    for path, msg in ((image_cog, "Ortofoto não encontrada"),
+                      (roads_path, "Shapefile de logradouros não encontrado")):
+        if not Path(path).exists():
+            raise SystemExit(f"{msg}: {path}")
+    ckpt = Path(checkpoint)
+    if not ckpt.exists():
+        raise SystemExit(
+            f"Modelo treinado não encontrado: {ckpt}\n"
+            "Treine com 'python -m src.road_surface.train' ou traga o checkpoint."
+        )
+    if ckpt.stat().st_size < 1024 and ckpt.read_bytes().startswith(b"version https://git-lfs"):
+        raise SystemExit(
+            f"'{ckpt}' é só o ponteiro do Git LFS, não o modelo.\n"
+            "Baixe o arquivo real com: git lfs install && git lfs pull"
+        )
 
 
 def _load_model(checkpoint: str, device):
@@ -70,8 +95,10 @@ def _segment_patches(line, src, transform, patch_px, bands, size, min_valid_frac
 @torch.no_grad()
 def classify_roads(image_cog: str, roads_path: str, out_path: str, cfg: dict) -> str:
     dp = cfg["data_prep"]
+    checkpoint = cfg["predict"]["checkpoint"]
+    _check_inputs(image_cog, roads_path, checkpoint)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, classes, size = _load_model(cfg["predict"]["checkpoint"], device)
+    model, classes, size = _load_model(checkpoint, device)
 
     gdf = gpd.read_file(roads_path)
     with rasterio.open(image_cog) as src:

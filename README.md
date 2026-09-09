@@ -81,6 +81,20 @@ python -m src.road_surface.predict --config configs/road_surface.yaml \
     --out outputs/<cidade>/vias.gpkg
 ```
 
+**Só as vias, em um comando** (gera o COG se ainda não existir, classifica e imprime o
+resumo por classe — nº de trechos e km):
+
+```bash
+python -m src.classify_roads_city --city <cidade> \
+    --image data/raw/<cidade>/ortofoto.tif \
+    --roads data/raw/<cidade>/logradouros.shp
+# -> outputs/<cidade>/vias.gpkg   (colunas PAV_PRED e PAV_CONF)
+```
+
+No Windows, o equivalente é `scripts\classificar_vias.bat "<cidade>" "ortofoto.tif" "logradouros.shp"`.
+Se a ortofoto for **ECW**, exporte antes para GeoTIFF no QGIS — o comando avisa quando o
+GDAL instalado não lê ECW. O COG é reaproveitado entre execuções (`--force-cog` regera).
+
 ### 3. Treinar / adicionar uma cidade ao treino
 
 Cada alvo tem sua config (`configs/buildings.yaml`, `quadras.yaml`, `lotes.yaml`). Para incluir
@@ -133,6 +147,7 @@ src/
 ├── eval/       evaluate                                       (IoU por objeto)
 ├── road_surface/ sample_patches · dataset · train · predict · labels  (classificação de piso)
 ├── predict_city.py           edificações em cidade nova (1 comando)
+├── classify_roads_city.py    pavimento das vias em cidade nova (1 comando)
 ├── compare_counts.py         nº/área previsto x verdade
 └── combine_layers.py         junta camadas num .gpkg
 ```
